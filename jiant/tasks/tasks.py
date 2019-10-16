@@ -236,7 +236,12 @@ class Task(object):
         self.example_counts = {}
         for split in splits:
             st = self.get_split_text(split)
-            count = self.get_num_examples(st)
+            print("split: ", split)
+            try:
+                count = self.get_num_examples(st)
+            except:
+                print("st: ", st)
+                sys.exit(0)
             self.example_counts[split] = count
 
     def tokenizer_is_supported(self, tokenizer_name):
@@ -2698,6 +2703,11 @@ class MultipleChoiceTask(Task):
     a (possibly variable) number of possible answers"""
 
     pass
+
+class SpanPredictionTask(Task):
+    """ Generic task class for predicting a span """
+
+    n_classes = 2
 
 
 @register_task("copa", rel_path="COPA/")

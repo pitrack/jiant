@@ -7,6 +7,7 @@ import string
 import collections
 import gzip
 import random
+import copy
 from typing import Iterable, Sequence, Type, Dict
 
 import torch
@@ -610,6 +611,7 @@ class SQuADTask(SpanPredictionTask):
     def load_data(self):
         self.train_data = self._load_squad_data(os.path.join(self.path,"train-v2.0.json"))
         self.val_data = self._load_squad_data(os.path.join(self.path, "dev-v2.0.json"))
+        self.test_data = copy.deepcopy(self.val_data[0:10]) #self._load_squad_data(os.path.join(self.path, "test-v2.0.json"))
         self.sentences = (
             [example["passage"] for example in self.train_data]
             + [example["question"] for example in self.train_data]
@@ -663,7 +665,7 @@ class SQuADTask(SpanPredictionTask):
         return instances
 
 
-    def _load_squad_data(self, path, is_train=False,shuffle=False):
+    def _load_squad_data(self, path,shuffle=False):
         def is_whitespace(c):
             if c == " " or c == "\t" or c == "\r" or c == "\n" or ord(c) == 0x202F:
                 return True
@@ -673,15 +675,15 @@ class SQuADTask(SpanPredictionTask):
         moses = MosesTokenizer()
         aligner_fn = get_aligner_fn(self.tokenizer_name)
 
-        with open(path) as f:
+        with open(path, "r", encoding='utf-8') as f:
             data = json.load(f)["data"] 
         for ex in data:
             for paragraph in ex["paragraphs"]:
-                passage== paragraph["context"]
+                passage = paragraph["context"]
                 doc_tokens = []
                 char_to_word_offset = []
                 prev_is_whitespace = True
-                for c in paragraph_text:
+                for c in passage:
                     if is_whitespace(c):
                         prev_is_whitespace = True
                     else:
@@ -701,7 +703,7 @@ class SQuADTask(SpanPredictionTask):
                     orig_answer_text = None
                     is_impossible = False
 
-                    if is_train:
+                    if "is_impossible" in qa:
                         is_impossible=qa["is_impossible"]
 
                     if is_impossible:
@@ -709,13 +711,15 @@ class SQuADTask(SpanPredictionTask):
                         end_position = -1 
                         orig_answer_text = ""
                     else:
-                        answer = qa["answers"][0]
+                        try:
+                            answer = qa["answers"][0]
+                        except:
+                            print("qa['answers']: ", qa)
                         orig_answer_text = answer["text"]
                         answer_offset = answer["answer_start"]
                         answer_length = len(orig_answer_text)
                         start_position = char_to_word_offset[answer_offset]
-                        end_position = char_to_word_offset[answer_offset + answer_length] #exclusive  - 1]                    
-                        
+                        end_position = char_to_word_offset[answer_offset + answer_length  - 1]                    
                     remapped_result = remap_ptb_passage_and_answer_spans(
                                            ptb_tokens=passage,
                                            answer_span=(start_position, end_position),
@@ -725,7 +729,7 @@ class SQuADTask(SpanPredictionTask):
                     example_list.append(
                         {   
                             "passage": self._process_sentence(remapped_result["detok_sent"]),
-                            "question": self._process_sentence(row["question"]),
+                            "question": self._process_sentence(question),
                             "answer_span": remapped_result["answer_token_span"],
                             "passage_str": remapped_result["detok_sent"],
                             "answer_str": remapped_result["answer_str"],
@@ -733,7 +737,7 @@ class SQuADTask(SpanPredictionTask):
                         }
                     )
 
-    return example_list
+        return example_list
 
     def _process_sentence(self, sent):
         return tokenize_and_truncate(
@@ -967,7 +971,10 @@ def remap_ptb_passage_and_answer_spans(ptb_tokens, answer_span, moses, aligner_f
     # We will need this to map from token predictions to str spans
     space_processed_token_map = []
     for space_token_i, (space_token, char_start, char_end) in enumerate(space_tokens_with_spans):
-        processed_token_span = aligner.project_span(space_token_i, space_token_i + 1)
+        try:
+            processed_token_span = aligner.project_span(space_token_i, space_token_i + 1)
+        except:
+            print("detok: ", detok_sent)
         for p_token_i in range(*processed_token_span):
             space_processed_token_map.append(
                 (processed_sentence_tokens[p_token_i], space_token, space_token_i)
